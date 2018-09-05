@@ -18,7 +18,7 @@ def job_ids_scrapping(url):
     job_id_list = []
     search_api = '/api/v3/search'
 
-    for i in range(10):
+    for i in range(3):
         resp = requests.get(url=url + search_api, params=params).json()
         for job_data in resp['data']['jobs']['data']:
             job_id_list.append(job_data['id'])
@@ -49,6 +49,6 @@ def job_data_scrapping(job_id_list, url):
         print(job_data)
 
 
-if __name__ == "__main__":
+def init_scraping(event, context):
     wanted_url = 'https://www.wanted.co.kr'
     job_data_scrapping(job_ids_scrapping(wanted_url), wanted_url)
