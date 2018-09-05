@@ -1,0 +1,10 @@
+{
+  "name": "serverless-scrap",
+  "version": "1.0.0",
+  "description": "",
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "serverless-python-requirements": "^4.1.1"
+  }
+}
