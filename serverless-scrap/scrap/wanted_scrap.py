@@ -94,7 +94,7 @@ async def scrap_job_datas(job_id_list: list):
         print("job_data_len", result.__len__())
 
 
-def init_scrap():
+def init_scrap(event, context):
     print("create loop")
     loop = asyncio.get_event_loop()
 
