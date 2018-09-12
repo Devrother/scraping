@@ -22,8 +22,7 @@ plugins:
 
 custom:
   pythonRequirements:
-    dockerizePip: false
-    # pythonBin: /Users/onz/.pyenv/versions/venv/bin/python
+    dockerizePip: "non-linux"
 
 provider:
   name: aws
