@@ -73,7 +73,7 @@ async def get_job_data(session, url, sem):
     async with sem:
         # print("get_job_data start : ", url)
         async with session.get(url) as response:
-            return await response.json()
+            return await response.json(content_type=None)
 
 
 def parse_data(data):
@@ -91,12 +91,12 @@ def parse_data(data):
 
 async def get_total_value(session, url):
     async with session.get(url) as response:
-        return (await response.json())['data']['jobs']['total']
+        return (await response.json(content_type=None))['data']['jobs']['total']
 
 
 async def get_job_id(session, url):
     # print("get_job_id start : ", url)
     async with session.get(url) as response:
-        res_job_list = (await response.json())['data']['jobs']['data']
+        res_job_list = (await response.json(content_type=None))['data']['jobs']['data']
         # print("get_job_id end : ", url)
         return [data['id'] for data in res_job_list]
