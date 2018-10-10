@@ -65,7 +65,7 @@ provider:
 
 functions:
   wanted_scrap:
-    handler: scrap/wanted_scrap.init_scrap
+    handler: scrap/scrap_job_and_company_data.main
     timeout: 300
   
 #    The following are a few example events you can configure
