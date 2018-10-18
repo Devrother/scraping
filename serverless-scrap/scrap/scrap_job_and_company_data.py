@@ -1,5 +1,6 @@
 import asyncio
 import json
+import aiobotocore
 
 from aiohttp import ClientSession
 
@@ -20,9 +21,9 @@ GET_JOB_ID_URL = 'http://www.wanted.co.kr/api/v3/search?' \
 GET_JOB_DATA_URL = 'https://www.wanted.co.kr/api/v1/jobs/{0}?lang=ko'
 LIMIT = 12
 SEMA = asyncio.Semaphore(10)
-STRINGS_TO_PARSE_COMPANY_DATA = ['company_id', 'company_name', 'company_info', 'location', 'logo_thumb_img']
-STRINGS_TO_PARSE_JOB_DATA = ['id', 'company_name', 'position', 'jd', 'create_time', 'company_id']
+STRINGS_TO_PARSE_DATA = ['company_id', 'id', 'company_name', 'position', 'jd', 'create_time', 'company_info', 'location', 'logo_thumb_img']
 
+QUEUE_NAME = ''
 
 def main(event, context):
     loop = asyncio.get_event_loop()
@@ -30,7 +31,10 @@ def main(event, context):
 
 
 async def scrap_init(loop):
-    async with ClientSession(loop=loop) as session:
+    aws_session = aiobotocore.get_session(loop=loop)
+    async with ClientSession(loop=loop) as session, \
+            aws_session.create_client('sqs', region_name='ap-northeast-2') as aws_client:
+
         # Get total value
         total = await get_total_value(session, GET_JOB_ID_URL.format(0))
 
@@ -43,15 +47,32 @@ async def scrap_init(loop):
         job_ids = [y for x in result for y in x]  # flatten list
 
         # Get job datas using job ids
+        queue_url = (await aws_client.get_queue_url(QueueName=QUEUE_NAME))['QueueUrl']
         fs = [get_job_data(session, GET_JOB_DATA_URL.format(job_id), SEMA) for job_id in job_ids]
         for future in asyncio.as_completed(fs, loop=loop):
             data = await future
-            (parsed_company_data, parsed_job_data) = parse_data(data)
+            parsed_data = parse_data(data)
+            logo_thumb_img_url = parsed_data['logo_thumb_img']
+            filename = parsed_data['company_id']
+            await aws_client.send_message(
+                QueueUrl=queue_url,
+                MessageBody='company logo image url',
+                MessageAttributes={
+                    'logo_thumb_img_url': {
+                        'DataType': 'String',
+                        'StringValue': logo_thumb_img_url
+                    },
+                    'filename': {
+                        'DataType': 'String',
+                        'StringValue': str(filename)
+                    }
+
+                }
+            )
             # await save_company_data
             # await save_job_data
             print("######")
-            print("com_data: ", json.dumps(parsed_company_data, ensure_ascii=False))
-            print("job_data: ", json.dumps(parsed_job_data, ensure_ascii=False))
+            print("data: ", json.dumps(parsed_data, ensure_ascii=False))
 
         # tasks2 = [
         #     asyncio.ensure_future(get_job_data(session, GET_JOB_DATA_URL.format(job_id), SEM))
@@ -77,16 +98,12 @@ async def get_job_data(session, url, sem):
 
 
 def parse_data(data):
-    parsed_job_data = {}
-    parsed_company_data = {}
+    parsed_data = {}
 
-    for s in STRINGS_TO_PARSE_JOB_DATA:
-        parsed_job_data[s] = data[s]
+    for s in STRINGS_TO_PARSE_DATA:
+        parsed_data[s] = data[s]
 
-    for s in STRINGS_TO_PARSE_COMPANY_DATA:
-        parsed_company_data[s] = data[s]
-
-    return parsed_company_data, parsed_job_data
+    return parsed_data
 
 
 async def get_total_value(session, url):
