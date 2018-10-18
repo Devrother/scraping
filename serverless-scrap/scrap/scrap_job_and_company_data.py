@@ -117,6 +117,3 @@ async def get_job_id(session, url):
         res_job_list = (await response.json(content_type=None))['data']['jobs']['data']
         # print("get_job_id end : ", url)
         return [data['id'] for data in res_job_list]
-
-
-main(1,1)
