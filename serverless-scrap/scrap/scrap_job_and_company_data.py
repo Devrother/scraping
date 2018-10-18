@@ -23,7 +23,7 @@ LIMIT = 12
 SEMA = asyncio.Semaphore(10)
 STRINGS_TO_PARSE_DATA = ['company_id', 'id', 'company_name', 'position', 'jd', 'create_time', 'company_info', 'location', 'logo_thumb_img']
 
-QUEUE_NAME = 'onsuk-sqs'
+QUEUE_NAME = ''
 
 def main(event, context):
     loop = asyncio.get_event_loop()
