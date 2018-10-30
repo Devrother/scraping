@@ -24,6 +24,7 @@ SEMA = asyncio.Semaphore(10)
 STRINGS_TO_PARSE_DATA = ['company_id', 'id', 'company_name', 'position', 'jd', 'create_time', 'company_info', 'location', 'logo_thumb_img']
 
 QUEUE_NAME = ''
+DYNAMODB_TABLE_NAME = ''
 
 def main(event, context):
     loop = asyncio.get_event_loop()
@@ -33,8 +34,7 @@ def main(event, context):
 async def scrap_init(loop):
     aws_session = aiobotocore.get_session(loop=loop)
     async with ClientSession(loop=loop) as session, \
-            aws_session.create_client('sqs', region_name='ap-northeast-2') as aws_client:
-
+            aws_session.create_client('sqs', region_name='ap-northeast-2') as sqs_client:
         # Get total value
         total = await get_total_value(session, GET_JOB_ID_URL.format(0))
 
@@ -45,16 +45,18 @@ async def scrap_init(loop):
         ]
         result = await asyncio.gather(*tasks)
         job_ids = [y for x in result for y in x]  # flatten list
+        job_ids_in_dynamodb = await get_dynamo_job_id(aws_session)
+        compared_ids = [id for id in job_ids if str(id) not in job_ids_in_dynamodb]
 
         # Get job datas using job ids
-        queue_url = (await aws_client.get_queue_url(QueueName=QUEUE_NAME))['QueueUrl']
-        fs = [get_job_data(session, GET_JOB_DATA_URL.format(job_id), SEMA) for job_id in job_ids]
+        queue_url = (await sqs_client.get_queue_url(QueueName=QUEUE_NAME))['QueueUrl']
+        fs = [get_job_data(session, GET_JOB_DATA_URL.format(job_id), SEMA) for job_id in compared_ids]
         for future in asyncio.as_completed(fs, loop=loop):
             data = await future
             parsed_data = parse_data(data)
             logo_thumb_img_url = parsed_data['logo_thumb_img']
             filename = parsed_data['company_id']
-            await aws_client.send_message(
+            await sqs_client.send_message(
                 QueueUrl=queue_url,
                 MessageBody='company logo image url',
                 MessageAttributes={
@@ -117,3 +119,14 @@ async def get_job_id(session, url):
         res_job_list = (await response.json(content_type=None))['data']['jobs']['data']
         # print("get_job_id end : ", url)
         return [data['id'] for data in res_job_list]
+
+
+# Get job ids from dynamodb
+async def get_dynamo_job_id(aws_session):
+    async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
+        response = await dynamo_client.get_item(
+            TableName=DYNAMODB_TABLE_NAME,
+            Key={'c_or_j': {'S': 'job'}}
+        )
+        # print('Response: ' + str(response['Item']))
+        return str(response['Item']['job_id']['M'])
