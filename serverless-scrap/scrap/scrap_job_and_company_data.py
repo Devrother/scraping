@@ -129,4 +129,4 @@ async def get_dynamo_job_id(aws_session):
             Key={'c_or_j': {'S': 'job'}}
         )
         # print('Response: ' + str(response['Item']))
-        return str(response['Item']['job_id']['M'])
+        return response['Item']['job_id']['M']
