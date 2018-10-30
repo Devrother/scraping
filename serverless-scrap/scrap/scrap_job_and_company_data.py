@@ -123,10 +123,9 @@ async def get_job_id(session, url):
 
 # Get job ids from dynamodb
 async def get_dynamo_job_id(aws_session):
-    table_name = DYNAMODB_TABLE_NAME
     async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
         response = await dynamo_client.get_item(
-            TableName=table_name,
+            TableName=DYNAMODB_TABLE_NAME,
             Key={'c_or_j': {'S': 'job'}}
         )
         # print('Response: ' + str(response['Item']))
