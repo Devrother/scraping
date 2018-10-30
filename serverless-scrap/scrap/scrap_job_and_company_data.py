@@ -35,6 +35,7 @@ async def scrap_init(loop):
     aws_session = aiobotocore.get_session(loop=loop)
     async with ClientSession(loop=loop) as session, \
             aws_session.create_client('sqs', region_name='ap-northeast-2') as sqs_client:
+
         # Get total value
         total = await get_total_value(session, GET_JOB_ID_URL.format(0))
 
@@ -119,7 +120,6 @@ async def get_job_id(session, url):
         res_job_list = (await response.json(content_type=None))['data']['jobs']['data']
         # print("get_job_id end : ", url)
         return [data['id'] for data in res_job_list]
-
 
 # Get job ids from dynamodb
 async def get_dynamo_job_id(aws_session):
