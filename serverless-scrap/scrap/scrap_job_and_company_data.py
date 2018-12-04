@@ -23,8 +23,8 @@ LIMIT = 12
 SEMA = asyncio.Semaphore(10)
 STRINGS_TO_PARSE_DATA = ['company_id', 'id', 'company_name', 'position', 'jd', 'create_time', 'company_info', 'location', 'logo_thumb_img']
 
-QUEUE_NAME = 'onsuk-sqs'
-DYNAMODB_TABLE_NAME = 'job_ids'
+QUEUE_NAME = ''
+DYNAMODB_TABLE_NAME = ''
 
 def main(event, context):
     loop = asyncio.get_event_loop()
@@ -129,9 +129,7 @@ async def get_dynamo_job_id(aws_session):
             TableName=DYNAMODB_TABLE_NAME,
             Key={'job_ids': {'S': 'job_ids'}}
         )
-        # print('Response: ' + str(response['Item']))
         return response['Item']['ids']['NS']
-        # return response['Item']['test']
 
 
 # Push compared_id into dynamodb
@@ -163,6 +161,3 @@ def create_batch_write_structure(table_name, compared_ids):
             }
         ]
     }
-
-
-main(1, 1)
