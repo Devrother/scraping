@@ -47,7 +47,9 @@ async def scrap_init(loop):
         result = await asyncio.gather(*tasks)
         job_ids = [y for x in result for y in x]  # flatten list
         job_ids_in_dynamodb = await get_dynamo_job_id(aws_session)
-        compared_ids = [id for id in job_ids if str(id) not in job_ids_in_dynamodb]
+        compared_ids = [str(id) for id in job_ids if str(id) not in job_ids_in_dynamodb]
+        put_job_ids = job_ids_in_dynamodb + compared_ids
+        await push_dynamo_compared_job_id(aws_session, put_job_ids)
 
         # Get job datas using job ids
         queue_url = (await sqs_client.get_queue_url(QueueName=QUEUE_NAME))['QueueUrl']
@@ -126,7 +128,38 @@ async def get_dynamo_job_id(aws_session):
     async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
         response = await dynamo_client.get_item(
             TableName=DYNAMODB_TABLE_NAME,
-            Key={'c_or_j': {'S': 'job'}}
+            Key={'job_ids': {'S': 'job_ids'}}
         )
-        # print('Response: ' + str(response['Item']))
-        return response['Item']['job_id']['M']
+        return response['Item']['ids']['NS']
+
+
+# Push compared_id into dynamodb
+async def push_dynamo_compared_job_id(aws_session, put_job_ids):
+    async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
+        table_name = DYNAMODB_TABLE_NAME
+        print('Writing to dynamo')
+        request_items = create_batch_write_structure(table_name, put_job_ids)
+        print("request_items: ", request_items)
+        response = await dynamo_client.batch_write_item(
+            RequestItems=request_items
+        )
+
+
+def create_batch_write_structure(table_name, put_job_ids):
+    return {
+        table_name: [
+            {
+                'PutRequest': {
+                    'Item': {
+                        "job_ids": {
+                            "S": "job_ids"
+                        },
+                        "ids": {
+                            "NS": put_job_ids
+                        }
+                    }
+                }
+            }
+        ]
+    }
+  
