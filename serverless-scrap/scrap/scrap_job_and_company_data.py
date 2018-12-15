@@ -24,7 +24,9 @@ SEMA = asyncio.Semaphore(10)
 STRINGS_TO_PARSE_DATA = ['company_id', 'id', 'company_name', 'position', 'jd', 'create_time', 'company_info', 'location', 'logo_thumb_img']
 
 QUEUE_NAME = ''
-DYNAMODB_TABLE_NAME = ''
+DYNAMODB_ID_TABLE_NAME = ''
+DYNAMODB_DATA_TABLE_NAME = ''
+
 
 def main(event, context):
     loop = asyncio.get_event_loop()
@@ -76,8 +78,9 @@ async def scrap_init(loop):
             )
             # await save_company_data
             # await save_job_data
-            print("######")
-            print("data: ", json.dumps(parsed_data, ensure_ascii=False))
+            # print("######")
+            # print("data: ", json.dumps(parsed_data, ensure_ascii=False))
+            await push_dynamo_job_data(aws_session, parsed_data)
 
         # tasks2 = [
         #     asyncio.ensure_future(get_job_data(session, GET_JOB_DATA_URL.format(job_id), SEM))
@@ -123,11 +126,12 @@ async def get_job_id(session, url):
         # print("get_job_id end : ", url)
         return [data['id'] for data in res_job_list]
 
+
 # Get job ids from dynamodb
 async def get_dynamo_job_id(aws_session):
     async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
         response = await dynamo_client.get_item(
-            TableName=DYNAMODB_TABLE_NAME,
+            TableName=DYNAMODB_ID_TABLE_NAME,
             Key={'job_ids': {'S': 'job_ids'}}
         )
         return response['Item']['ids']['NS']
@@ -136,16 +140,16 @@ async def get_dynamo_job_id(aws_session):
 # Push compared_id into dynamodb
 async def push_dynamo_compared_job_id(aws_session, put_job_ids):
     async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
-        table_name = DYNAMODB_TABLE_NAME
+        table_name = DYNAMODB_ID_TABLE_NAME
         print('Writing to dynamo')
-        request_items = create_batch_write_structure(table_name, put_job_ids)
+        request_items = create_id_batch_write_structure(table_name, put_job_ids)
         print("request_items: ", request_items)
         response = await dynamo_client.batch_write_item(
             RequestItems=request_items
         )
 
 
-def create_batch_write_structure(table_name, put_job_ids):
+def create_id_batch_write_structure(table_name, put_job_ids):
     return {
         table_name: [
             {
@@ -162,4 +166,59 @@ def create_batch_write_structure(table_name, put_job_ids):
             }
         ]
     }
-  
+
+
+# push job datas into dynamodb
+async def push_dynamo_job_data(aws_session, parsed_data):
+    async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
+        table_name = DYNAMODB_DATA_TABLE_NAME
+        print('Writing to dynamo - job data')
+        request_items = create_data_batch_write_structure(table_name, parsed_data)
+        print("request_items: ", request_items)
+        response = await dynamo_client.batch_write_item(
+            RequestItems=request_items
+        )
+
+
+def create_data_batch_write_structure(table_name, parsed_data):
+    return {
+        table_name: [
+            {
+                'PutRequest': {
+                    'Item': {
+                        "company_id": {
+                            "N": str(parsed_data["company_id"])
+                        },
+                        "job_id": {
+                            "N": str(parsed_data["id"])
+                        },
+                        "meta": {
+                            "M": {
+                                "company_info": {
+                                    "S": str(parsed_data["company_info"])
+                                },
+                                "company_name": {
+                                    "S": str(parsed_data["company_name"])
+                                },
+                                "jd": {
+                                    "S": str(parsed_data["jd"])
+                                },
+                                "job_data_created_at": {
+                                    "S": str(parsed_data["create_time"])
+                                },
+                                "location": {
+                                    "S": str(parsed_data["location"])
+                                },
+                                "logo_img": {
+                                    "S": str(parsed_data["logo_thumb_img"])
+                                },
+                                "position": {
+                                    "S": str(parsed_data["position"])
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ]
+    }
