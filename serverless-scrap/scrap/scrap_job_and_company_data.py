@@ -1,5 +1,8 @@
+from utils.aws.db.dynamodb_client import DynamodbClient
+from utils.aws.sqs.sqs_client import SqsClient
+from utils.aws.db.structure import job_ids_key
+
 import asyncio
-import json
 import aiobotocore
 
 from aiohttp import ClientSession
@@ -24,8 +27,10 @@ SEMA = asyncio.Semaphore(10)
 STRINGS_TO_PARSE_DATA = ['company_id', 'id', 'company_name', 'position', 'jd', 'create_time', 'company_info', 'location', 'logo_thumb_img']
 
 QUEUE_NAME = ''
-DYNAMODB_ID_TABLE_NAME = ''
-DYNAMODB_DATA_TABLE_NAME = ''
+DY_ID_TABLE = ''
+DY_DATA_TABLE = ''
+REGION = 'ap-northeast-2'
+SQS_MESSAGE = 'company logo image url'
 
 
 def main(event, context):
@@ -36,7 +41,10 @@ def main(event, context):
 async def scrap_init(loop):
     aws_session = aiobotocore.get_session(loop=loop)
     async with ClientSession(loop=loop) as session, \
-            aws_session.create_client('sqs', region_name='ap-northeast-2') as sqs_client:
+            aws_session.create_client('sqs', region_name=REGION) as sqs_cli, \
+            aws_session.create_client('dynamodb', region_name=REGION) as db_cli:
+        dy_client = DynamodbClient(db_cli)
+        sqs_client = SqsClient(sqs_cli)
 
         # Get total value
         total = await get_total_value(session, GET_JOB_ID_URL.format(0))
@@ -48,59 +56,27 @@ async def scrap_init(loop):
         ]
         result = await asyncio.gather(*tasks)
         job_ids = [y for x in result for y in x]  # flatten list
-        job_ids_in_dynamodb = await get_dynamo_job_id(aws_session)
+        job_ids_in_dynamodb = (await dy_client.get_data(DY_ID_TABLE, job_ids_key))['Item']['ids']['NS']
         compared_ids = [str(id) for id in job_ids if str(id) not in job_ids_in_dynamodb]
         put_job_ids = job_ids_in_dynamodb + compared_ids
-        await push_dynamo_compared_job_id(aws_session, put_job_ids)
 
         # Get job datas using job ids
-        queue_url = (await sqs_client.get_queue_url(QueueName=QUEUE_NAME))['QueueUrl']
+        queue_url = await sqs_client.get_queue_url(QUEUE_NAME)
         fs = [get_job_data(session, GET_JOB_DATA_URL.format(job_id), SEMA) for job_id in compared_ids]
         for future in asyncio.as_completed(fs, loop=loop):
             data = await future
             parsed_data = parse_data(data)
             logo_thumb_img_url = parsed_data['logo_thumb_img']
             filename = parsed_data['company_id']
-            await sqs_client.send_message(
-                QueueUrl=queue_url,
-                MessageBody='company logo image url',
-                MessageAttributes={
-                    'logo_thumb_img_url': {
-                        'DataType': 'String',
-                        'StringValue': logo_thumb_img_url
-                    },
-                    'filename': {
-                        'DataType': 'String',
-                        'StringValue': str(filename)
-                    }
 
-                }
-            )
-            # await save_company_data
-            # await save_job_data
-            # print("######")
-            # print("data: ", json.dumps(parsed_data, ensure_ascii=False))
-            await push_dynamo_job_data(aws_session, parsed_data)
+            await sqs_client.send_message(queue_url, SQS_MESSAGE, logo_thumb_img_url, filename)
+            await dy_client.insert_data(parsed_data, DY_DATA_TABLE)
 
-        # tasks2 = [
-        #     asyncio.ensure_future(get_job_data(session, GET_JOB_DATA_URL.format(job_id), SEM))
-        #     for job_id in job_ids
-        # ]
-        # (done, pending) = await asyncio.wait(tasks2, timeout=250)
-        # if pending:
-        #     print("there is {} tasks not completed".format(len(pending)))
-        # for f in pending:
-        #     for fr in f.get_stack():
-        #         print(fr.f_locals)
-        #     f.cancel()
-        # for f in done:
-        #     x = await f
-        #     print("job data :", x)
+        await dy_client.insert_data(put_job_ids, DY_ID_TABLE)
 
 
 async def get_job_data(session, url, sem):
     async with sem:
-        # print("get_job_data start : ", url)
         async with session.get(url) as response:
             return await response.json(content_type=None)
 
@@ -120,105 +96,6 @@ async def get_total_value(session, url):
 
 
 async def get_job_id(session, url):
-    # print("get_job_id start : ", url)
     async with session.get(url) as response:
         res_job_list = (await response.json(content_type=None))['data']['jobs']['data']
-        # print("get_job_id end : ", url)
         return [data['id'] for data in res_job_list]
-
-
-# Get job ids from dynamodb
-async def get_dynamo_job_id(aws_session):
-    async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
-        response = await dynamo_client.get_item(
-            TableName=DYNAMODB_ID_TABLE_NAME,
-            Key={'job_ids': {'S': 'job_ids'}}
-        )
-        return response['Item']['ids']['NS']
-
-
-# Push compared_id into dynamodb
-async def push_dynamo_compared_job_id(aws_session, put_job_ids):
-    async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
-        table_name = DYNAMODB_ID_TABLE_NAME
-        print('Writing to dynamo')
-        request_items = create_id_batch_write_structure(table_name, put_job_ids)
-        print("request_items: ", request_items)
-        response = await dynamo_client.batch_write_item(
-            RequestItems=request_items
-        )
-
-
-def create_id_batch_write_structure(table_name, put_job_ids):
-    return {
-        table_name: [
-            {
-                'PutRequest': {
-                    'Item': {
-                        "job_ids": {
-                            "S": "job_ids"
-                        },
-                        "ids": {
-                            "NS": put_job_ids
-                        }
-                    }
-                }
-            }
-        ]
-    }
-
-
-# push job datas into dynamodb
-async def push_dynamo_job_data(aws_session, parsed_data):
-    async with aws_session.create_client('dynamodb', region_name='ap-northeast-2') as dynamo_client:
-        table_name = DYNAMODB_DATA_TABLE_NAME
-        print('Writing to dynamo - job data')
-        request_items = create_data_batch_write_structure(table_name, parsed_data)
-        print("request_items: ", request_items)
-        response = await dynamo_client.batch_write_item(
-            RequestItems=request_items
-        )
-
-
-def create_data_batch_write_structure(table_name, parsed_data):
-    return {
-        table_name: [
-            {
-                'PutRequest': {
-                    'Item': {
-                        "company_id": {
-                            "N": str(parsed_data["company_id"])
-                        },
-                        "job_id": {
-                            "N": str(parsed_data["id"])
-                        },
-                        "meta": {
-                            "M": {
-                                "company_info": {
-                                    "S": str(parsed_data["company_info"])
-                                },
-                                "company_name": {
-                                    "S": str(parsed_data["company_name"])
-                                },
-                                "jd": {
-                                    "S": str(parsed_data["jd"])
-                                },
-                                "job_data_created_at": {
-                                    "S": str(parsed_data["create_time"])
-                                },
-                                "location": {
-                                    "S": str(parsed_data["location"])
-                                },
-                                "logo_img": {
-                                    "S": str(parsed_data["logo_thumb_img"])
-                                },
-                                "position": {
-                                    "S": str(parsed_data["position"])
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        ]
-    }
