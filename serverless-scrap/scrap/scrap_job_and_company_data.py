@@ -24,7 +24,8 @@ GET_JOB_ID_URL = 'http://www.wanted.co.kr/api/v3/search?' \
 GET_JOB_DATA_URL = 'https://www.wanted.co.kr/api/v1/jobs/{0}?lang=ko'
 LIMIT = 12
 SEMA = asyncio.Semaphore(10)
-STRINGS_TO_PARSE_DATA = ['company_id', 'id', 'company_name', 'position', 'jd', 'create_time', 'company_info', 'location', 'logo_thumb_img']
+STRINGS_TO_PARSE_DATA = ['company_id', 'id', 'company_name', 'position', 'jd', 'create_time', 'company_info',
+                         'location', 'logo_thumb_img']
 
 QUEUE_NAME = ''
 DY_ID_TABLE = ''
@@ -82,12 +83,7 @@ async def get_job_data(session, url, sem):
 
 
 def parse_data(data):
-    parsed_data = {}
-
-    for s in STRINGS_TO_PARSE_DATA:
-        parsed_data[s] = data[s]
-
-    return parsed_data
+    return {s: data[s] for s in STRINGS_TO_PARSE_DATA if s in data}
 
 
 async def get_total_value(session, url):
