@@ -5,6 +5,7 @@ from utils.aws.db.structure import job_ids_key
 import asyncio
 import aiobotocore
 
+from itertools import chain
 from aiohttp import ClientSession
 
 # 1. dynamoDB 에서 job_id를 들고온다.
@@ -56,7 +57,7 @@ async def scrap_init(loop):
             for offset in range(0, total, LIMIT)
         ]
         result = await asyncio.gather(*tasks)
-        job_ids = [y for x in result for y in x]  # flatten list
+        job_ids = list(chain(*result))  # flatten list
         job_ids_in_dynamodb = (await dy_client.get_data(DY_ID_TABLE, job_ids_key))['Item']['ids']['NS']
         compared_ids = [str(id) for id in job_ids if str(id) not in job_ids_in_dynamodb]
         put_job_ids = job_ids_in_dynamodb + compared_ids
